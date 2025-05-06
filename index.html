@@ -1,227 +1,291 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Zombie Survival Game</title>
   <style>
-    html, body {
-      margin: 0;
-      background: #111;
-      overflow: hidden;
-    }
     canvas {
-      display: block;
-      margin: auto;
       background: #333;
-      border: 2px solid #222;
+      display: block;
+      margin: 0 auto;
+    }
+    body {
+      margin: 0;
+      overflow: hidden;
     }
   </style>
 </head>
 <body>
-<canvas id="game" width="800" height="600"></canvas>
+<canvas id="gameCanvas" width="800" height="600"></canvas>
 <script>
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
+  // Get canvas and context
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
 
-let keys = {};
-let bullets = [];
-let zombies = [];
-let healthPacks = [];
+  // Game variables
+  let keys = {};
+  let mouse = { x: 0, y: 0 };
+  let bullets = [];
+  let zombies = [];
+  let powerUps = [];
+  let lastZombieSpawn = 0;
+  let zombieSpawnInterval = 2000; // milliseconds
+  let mapOffset = { x: 0, y: 0 };
+  let gameOver = false;
 
-const player = {
-  x: 400, y: 300, r: 20, speed: 3, health: 100, ammo: 10, maxAmmo: 10, score: 0,
-  reloading: false
-};
+  // Player object
+  const player = {
+    x: 0,
+    y: 0,
+    width: 20,
+    height: 20,
+    speed: 3,
+    reloading: false,
+    health: 100
+  };
 
-let mouse = { x: 0, y: 0 };
-let gameOver = false;
-let wave = 1;
-let spawnCooldown = 0;
+  // Weapon class
+  class Weapon {
+    constructor(name, damage, fireRate, bulletSpeed, ammoCapacity, shootFunction) {
+      this.name = name;
+      this.damage = damage;
+      this.fireRate = fireRate; // Bullets per second
+      this.bulletSpeed = bulletSpeed;
+      this.ammoCapacity = ammoCapacity;
+      this.currentAmmo = ammoCapacity;
+      this.shootFunction = shootFunction; // Function defining shooting behavior
+      this.lastShotTime = 0;
+    }
 
-document.addEventListener('keydown', e => keys[e.key] = true);
-document.addEventListener('keyup', e => keys[e.key] = false);
-canvas.addEventListener('mousemove', e => {
-  const rect = canvas.getBoundingClientRect();
-  mouse.x = e.clientX - rect.left;
-  mouse.y = e.clientY - rect.top;
-});
-canvas.addEventListener('mousedown', shoot);
-
-function shoot() {
-  if (player.ammo > 0 && !player.reloading && !gameOver) {
-    const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
-    bullets.push({ x: player.x, y: player.y, dx: Math.cos(angle) * 8, dy: Math.sin(angle) * 8 });
-    player.ammo--;
-  }
-}
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'r' && !player.reloading && !gameOver) {
-    reload();
-  }
-});
-
-function reload() {
-  player.reloading = true;
-  setTimeout(() => {
-    player.ammo = player.maxAmmo;
-    player.reloading = false;
-  }, 1000);
-}
-
-function spawnZombie() {
-  const edges = [
-    { x: Math.random() * canvas.width, y: -30 },
-    { x: Math.random() * canvas.width, y: canvas.height + 30 },
-    { x: -30, y: Math.random() * canvas.height },
-    { x: canvas.width + 30, y: Math.random() * canvas.height }
-  ];
-  const pos = edges[Math.floor(Math.random() * edges.length)];
-  zombies.push({ x: pos.x, y: pos.y, r: 20, speed: 1.5 + Math.random(), hit: false });
-}
-
-function spawnHealthPack() {
-  healthPacks.push({
-    x: 50 + Math.random() * 700,
-    y: 50 + Math.random() * 500,
-    r: 10,
-    active: true
-  });
-}
-
-function update() {
-  if (gameOver) return;
-
-  // Movement
-  if (keys['w']) player.y -= player.speed;
-  if (keys['s']) player.y += player.speed;
-  if (keys['a']) player.x -= player.speed;
-  if (keys['d']) player.x += player.speed;
-
-  // Bullets
-  bullets.forEach(b => {
-    b.x += b.dx;
-    b.y += b.dy;
-  });
-  bullets = bullets.filter(b => b.x > 0 && b.x < canvas.width && b.y > 0 && b.y < canvas.height);
-
-  // Zombies follow
-  zombies.forEach(z => {
-    const angle = Math.atan2(player.y - z.y, player.x - z.x);
-    z.x += Math.cos(angle) * z.speed;
-    z.y += Math.sin(angle) * z.speed;
-  });
-
-  // Collision: bullets vs zombies
-  bullets.forEach((b, i) => {
-    zombies.forEach((z, j) => {
-      const dist = Math.hypot(b.x - z.x, b.y - z.y);
-      if (dist < z.r) {
-        zombies.splice(j, 1);
-        bullets.splice(i, 1);
-        player.score++;
-      }
-    });
-  });
-
-  // Collision: zombies vs player
-  zombies.forEach(z => {
-    const dist = Math.hypot(player.x - z.x, player.y - z.y);
-    if (dist < player.r + z.r) {
-      player.health -= 0.5;
-      if (player.health <= 0) {
-        player.health = 0;
-        gameOver = true;
+    shoot(currentTime, player, bullets) {
+      if (currentTime - this.lastShotTime >= 1000 / this.fireRate && this.currentAmmo > 0) {
+        this.shootFunction(player, bullets, this.bulletSpeed, this.damage);
+        this.currentAmmo--;
+        this.lastShotTime = currentTime;
       }
     }
-  });
 
-  // Health pack pickup
-  healthPacks.forEach((p, i) => {
-    const dist = Math.hypot(player.x - p.x, player.y - p.y);
-    if (dist < player.r + p.r && p.active) {
-      player.health = Math.min(player.health + 30, 100);
-      p.active = false;
+    reload() {
+      this.currentAmmo = this.ammoCapacity;
     }
-  });
-
-  // Spawn logic
-  if (spawnCooldown <= 0) {
-    for (let i = 0; i < wave; i++) spawnZombie();
-    if (Math.random() < 0.3) spawnHealthPack();
-    spawnCooldown = 400;
-    wave++;
-  } else {
-    spawnCooldown--;
   }
-}
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Bullet class
+  class Bullet {
+    constructor(x, y, angle, speed, damage) {
+      this.x = x;
+      this.y = y;
+      this.angle = angle;
+      this.speed = speed;
+      this.damage = damage;
+      this.radius = 5;
+    }
 
-  // Player
-  ctx.fillStyle = 'cyan';
-  ctx.beginPath();
-  ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-  ctx.fill();
+    update() {
+      this.x += Math.cos(this.angle) * this.speed;
+      this.y += Math.sin(this.angle) * this.speed;
+    }
 
-  // Gun direction line
-  ctx.strokeStyle = 'white';
-  ctx.beginPath();
-  ctx.moveTo(player.x, player.y);
-  ctx.lineTo(mouse.x, mouse.y);
-  ctx.stroke();
-
-  // Bullets
-  ctx.fillStyle = 'yellow';
-  bullets.forEach(b => {
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
-    ctx.fill();
-  });
-
-  // Zombies
-  ctx.fillStyle = 'green';
-  zombies.forEach(z => {
-    ctx.beginPath();
-    ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2);
-    ctx.fill();
-  });
-
-  // Health packs
-  healthPacks.forEach(p => {
-    if (p.active) {
-      ctx.fillStyle = 'red';
+    draw() {
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.arc(this.x - mapOffset.x + canvas.width / 2, this.y - mapOffset.y + canvas.height / 2, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = 'yellow';
       ctx.fill();
     }
+  }
+
+  // Zombie class
+  class Zombie {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+      this.radius = 15;
+      this.speed = 1;
+      this.health = 50;
+    }
+
+    update() {
+      const dx = player.x - this.x;
+      const dy = player.y - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0) {
+        this.x += (dx / dist) * this.speed;
+        this.y += (dy / dist) * this.speed;
+      }
+    }
+
+    draw() {
+      ctx.beginPath();
+      ctx.arc(this.x - mapOffset.x + canvas.width / 2, this.y - mapOffset.y + canvas.height / 2, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = 'green';
+      ctx.fill();
+    }
+  }
+
+  // Power-up class
+  class PowerUp {
+    constructor(x, y, type) {
+      this.x = x;
+      this.y = y;
+      this.radius = 10;
+      this.type = type;
+    }
+
+    draw() {
+      ctx.beginPath();
+      ctx.arc(this.x - mapOffset.x + canvas.width / 2, this.y - mapOffset.y + canvas.height / 2, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = this.type === 'health' ? 'red' : 'blue';
+      ctx.fill();
+    }
+  }
+
+  // Shooting behaviors
+  function pistolShoot(player, bullets, speed, damage) {
+    const angle = Math.atan2(mouse.y - canvas.height / 2, mouse.x - canvas.width / 2);
+    bullets.push(new Bullet(player.x, player.y, angle, speed, damage));
+  }
+
+  function shotgunShoot(player, bullets, speed, damage) {
+    const baseAngle = Math.atan2(mouse.y - canvas.height / 2, mouse.x - canvas.width / 2);
+    const spread = 0.2; // Radians
+    const pellets = 5;
+    for (let i = 0; i < pellets; i++) {
+      const angle = baseAngle - spread / 2 + (spread / (pellets - 1)) * i;
+      bullets.push(new Bullet(player.x, player.y, angle, speed, damage));
+    }
+  }
+
+  function machineGunShoot(player, bullets, speed, damage) {
+    const angle = Math.atan2(mouse.y - canvas.height / 2, mouse.x - canvas.width / 2);
+    bullets.push(new Bullet(player.x, player.y, angle, speed, damage));
+  }
+
+  // Initialize weapons
+  const weapons = [
+    new Weapon('Pistol', 20, 2, 8, 10, pistolShoot),
+    new Weapon('Shotgun', 10, 1, 6, 5, shotgunShoot),
+    new Weapon('Machine Gun', 5, 10, 10, 30, machineGunShoot)
+  ];
+
+  let currentWeaponIndex = 0;
+  let currentWeapon = weapons[currentWeaponIndex];
+
+  // Event listeners
+  document.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    if (e.key >= '1' && e.key <= weapons.length.toString()) {
+      currentWeaponIndex = parseInt(e.key) - 1;
+      currentWeapon = weapons[currentWeaponIndex];
+    }
+    if (e.key === 'r' && !player.reloading && !gameOver) {
+      player.reloading = true;
+      setTimeout(() => {
+        currentWeapon.reload();
+        player.reloading = false;
+      }, 1000);
+    }
   });
 
-  // UI
-  ctx.fillStyle = 'white';
-  ctx.font = '16px monospace';
-  ctx.fillText(`Health: ${Math.floor(player.health)}  Ammo: ${player.ammo}/${player.maxAmmo}  Score: ${player.score}  Wave: ${wave}`, 10, 20);
-  if (player.reloading) ctx.fillText(`Reloading...`, 10, 40);
+  document.addEventListener('keyup', e => {
+    keys[e.key] = false;
+  });
 
-  if (gameOver) {
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'red';
-    ctx.font = '40px sans-serif';
-    ctx.fillText('GAME OVER', 300, 300);
-    ctx.font = '20px sans-serif';
-    ctx.fillText(`Score: ${player.score}`, 350, 340);
+  canvas.addEventListener('mousemove', e => {
+    mouse.x = e.offsetX;
+    mouse.y = e.offsetY;
+  });
+
+  canvas.addEventListener('mousedown', e => {
+    shoot(Date.now());
+  });
+
+  function shoot(currentTime) {
+    if (!player.reloading && !gameOver) {
+      currentWeapon.shoot(currentTime, player, bullets);
+    }
   }
-}
 
-function gameLoop() {
-  update();
-  draw();
-  requestAnimationFrame(gameLoop);
-}
+  // Game loop
+  function gameLoop() {
+    update();
+    draw();
+    if (!gameOver) {
+      requestAnimationFrame(gameLoop);
+    } else {
+      drawGameOver();
+    }
+  }
 
-gameLoop();
-</script>
-</body>
-</html>
+  function update() {
+    // Move player
+    if (keys['w']) player.y -= player.speed;
+    if (keys['s']) player.y += player.speed;
+    if (keys['a']) player.x -= player.speed;
+    if (keys['d']) player.x += player.speed;
+
+    // Update map offset for scrolling
+    mapOffset.x = player.x - canvas.width / 2;
+    mapOffset.y = player.y - canvas.height / 2;
+
+    // Update bullets
+    bullets.forEach((bullet, index) => {
+      bullet.update();
+      // Remove bullets that are off-screen
+      if (
+        bullet.x < player.x - canvas.width / 2 - 100 ||
+        bullet.x > player.x + canvas.width / 2 + 100 ||
+        bullet.y < player.y - canvas.height / 2 - 100 ||
+        bullet.y > player.y + canvas.height / 2 + 100
+      ) {
+        bullets.splice(index, 1);
+      }
+    });
+
+    // Update zombies
+    zombies.forEach((zombie, zIndex) => {
+      zombie.update();
+      // Check collision with player
+      const dx = zombie.x - player.x;
+      const dy = zombie.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < zombie.radius + player.width / 2) {
+        player.health -= 0.5;
+        if (player.health <= 0) {
+          gameOver = true;
+        }
+      }
+      // Check collision with bullets
+      bullets.forEach((bullet, bIndex) => {
+        const dx = zombie.x - bullet.x;
+        const dy = zombie.y - bullet.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < zombie.radius + bullet.radius) {
+          zombie.health -= bullet.damage;
+          bullets.splice(bIndex, 1);
+          if (zombie.health <= 0) {
+            // Drop power-up with 10% chance
+            if (Math.random() < 0.1) {
+              const type = Math.random() < 0.5 ? 'health' : 'ammo';
+              powerUps.push(new PowerUp(zombie.x, zombie.y, type));
+            }
+            zombies.splice(zIndex, 1);
+          }
+        }
+      });
+    });
+
+    // Update power-ups
+    powerUps.forEach((powerUp, pIndex) => {
+      const dx = powerUp.x - player.x;
+      const dy = powerUp.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < powerUp.radius + player.width / 2) {
+        if (powerUp.type === 'health') {
+          player.health = Math.min(player.health + 20, 100);
+        } else if (powerUp.type === 'ammo') {
+          currentWeapon.currentAmmo = currentWeapon.ammoCapacity;
+        }
+        powerUps.splice(pIndex, 1);
+     
+::contentReference[oaicite:28]{index=28}
+ 
