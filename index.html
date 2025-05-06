@@ -1,217 +1,227 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Baseball Game</title>
+  <meta charset="UTF-8">
+  <title>Zombie Survival Game</title>
   <style>
     html, body {
       margin: 0;
-      padding: 0;
+      background: #111;
       overflow: hidden;
-      background: #87CEEB;
     }
     canvas {
       display: block;
       margin: auto;
-      background: #4CAF50;
+      background: #333;
+      border: 2px solid #222;
     }
   </style>
 </head>
 <body>
-<canvas id="game" width="800" height="400"></canvas>
+<canvas id="game" width="800" height="600"></canvas>
 <script>
-  const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
 
-  let gameStarted = false;
+let keys = {};
+let bullets = [];
+let zombies = [];
+let healthPacks = [];
 
-  let ball = {
-    x: 400,
-    y: 150,
-    radius: 8,
-    speedX: 0,
-    speedY: 0,
-    active: false,
-    hit: false
-  };
+const player = {
+  x: 400, y: 300, r: 20, speed: 3, health: 100, ammo: 10, maxAmmo: 10, score: 0,
+  reloading: false
+};
 
-  let bat = {
-    x: 400,
-    y: 300,
-    width: 10,
-    height: 60,
-    angle: 0,
-    swinging: false
-  };
+let mouse = { x: 0, y: 0 };
+let gameOver = false;
+let wave = 1;
+let spawnCooldown = 0;
 
-  let runner = {
-    x: 400,
-    y: 390,
-    running: false,
-    stage: 0 // 0 = home, 1 = to first, 2 = to second, 3 = stopped
-  };
+document.addEventListener('keydown', e => keys[e.key] = true);
+document.addEventListener('keyup', e => keys[e.key] = false);
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = e.clientX - rect.left;
+  mouse.y = e.clientY - rect.top;
+});
+canvas.addEventListener('mousedown', shoot);
 
-  const firstBase = { x: 600, y: 300 };
-  const secondBase = { x: 500, y: 150 };
-
-  function drawField() {
-    ctx.fillStyle = '#4CAF50';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Pitcher's mound
-    ctx.fillStyle = '#D2B48C';
-    ctx.beginPath();
-    ctx.arc(400, 150, 20, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Home plate
-    ctx.fillStyle = 'white';
-    ctx.beginPath();
-    ctx.moveTo(390, 370);
-    ctx.lineTo(410, 370);
-    ctx.lineTo(415, 390);
-    ctx.lineTo(385, 390);
-    ctx.closePath();
-    ctx.fill();
-
-    // First base
-    ctx.fillStyle = 'white';
-    ctx.fillRect(firstBase.x - 10, firstBase.y - 10, 20, 20);
-
-    // Second base
-    ctx.fillStyle = 'white';
-    ctx.fillRect(secondBase.x - 10, secondBase.y - 10, 20, 20);
+function shoot() {
+  if (player.ammo > 0 && !player.reloading && !gameOver) {
+    const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+    bullets.push({ x: player.x, y: player.y, dx: Math.cos(angle) * 8, dy: Math.sin(angle) * 8 });
+    player.ammo--;
   }
+}
 
-  function drawBall() {
-    if (ball.active) {
-      ctx.fillStyle = 'white';
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
+document.addEventListener('keydown', e => {
+  if (e.key === 'r' && !player.reloading && !gameOver) {
+    reload();
   }
+});
 
-  function drawBat() {
-    ctx.save();
-    ctx.translate(bat.x, bat.y);
-    ctx.rotate(bat.angle);
-    ctx.fillStyle = '#8B4513';
-    ctx.fillRect(-bat.width / 2, -bat.height, bat.width, bat.height);
-    ctx.restore();
-  }
+function reload() {
+  player.reloading = true;
+  setTimeout(() => {
+    player.ammo = player.maxAmmo;
+    player.reloading = false;
+  }, 1000);
+}
 
-  function drawRunner() {
-    if (runner.stage > 0 && runner.stage <= 3) {
-      ctx.fillStyle = 'blue';
-      ctx.beginPath();
-      ctx.arc(runner.x, runner.y, 10, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
+function spawnZombie() {
+  const edges = [
+    { x: Math.random() * canvas.width, y: -30 },
+    { x: Math.random() * canvas.width, y: canvas.height + 30 },
+    { x: -30, y: Math.random() * canvas.height },
+    { x: canvas.width + 30, y: Math.random() * canvas.height }
+  ];
+  const pos = edges[Math.floor(Math.random() * edges.length)];
+  zombies.push({ x: pos.x, y: pos.y, r: 20, speed: 1.5 + Math.random(), hit: false });
+}
 
-  function pitchBall() {
-    ball.x = 400;
-    ball.y = 150;
-    ball.speedY = 3;
-    ball.speedX = (Math.random() - 0.5) * 2;
-    ball.active = true;
-    ball.hit = false;
-  }
+function spawnHealthPack() {
+  healthPacks.push({
+    x: 50 + Math.random() * 700,
+    y: 50 + Math.random() * 500,
+    r: 10,
+    active: true
+  });
+}
 
-  function updateBall() {
-    if (ball.active) {
-      ball.x += ball.speedX;
-      ball.y += ball.speedY;
+function update() {
+  if (gameOver) return;
 
-      if (ball.y > 380 && !ball.hit) {
-        ball.active = false;
-        setTimeout(pitchBall, 1000);
+  // Movement
+  if (keys['w']) player.y -= player.speed;
+  if (keys['s']) player.y += player.speed;
+  if (keys['a']) player.x -= player.speed;
+  if (keys['d']) player.x += player.speed;
+
+  // Bullets
+  bullets.forEach(b => {
+    b.x += b.dx;
+    b.y += b.dy;
+  });
+  bullets = bullets.filter(b => b.x > 0 && b.x < canvas.width && b.y > 0 && b.y < canvas.height);
+
+  // Zombies follow
+  zombies.forEach(z => {
+    const angle = Math.atan2(player.y - z.y, player.x - z.x);
+    z.x += Math.cos(angle) * z.speed;
+    z.y += Math.sin(angle) * z.speed;
+  });
+
+  // Collision: bullets vs zombies
+  bullets.forEach((b, i) => {
+    zombies.forEach((z, j) => {
+      const dist = Math.hypot(b.x - z.x, b.y - z.y);
+      if (dist < z.r) {
+        zombies.splice(j, 1);
+        bullets.splice(i, 1);
+        player.score++;
       }
+    });
+  });
 
-      if (ball.hit && (ball.x < 0 || ball.x > 800 || ball.y < 0)) {
-        ball.active = false;
-        setTimeout(pitchBall, 1000);
+  // Collision: zombies vs player
+  zombies.forEach(z => {
+    const dist = Math.hypot(player.x - z.x, player.y - z.y);
+    if (dist < player.r + z.r) {
+      player.health -= 0.5;
+      if (player.health <= 0) {
+        player.health = 0;
+        gameOver = true;
       }
-    }
-  }
-
-  function updateRunner() {
-    if (runner.stage === 1) {
-      moveToBase(firstBase.x, firstBase.y, () => {
-        runner.stage = 2;
-      });
-    } else if (runner.stage === 2) {
-      moveToBase(secondBase.x, secondBase.y, () => {
-        runner.stage = 3; // stop at second
-      });
-    }
-  }
-
-  function moveToBase(baseX, baseY, onArrive) {
-    const dx = baseX - runner.x;
-    const dy = baseY - runner.y;
-    const dist = Math.hypot(dx, dy);
-
-    if (dist < 5) {
-      onArrive();
-    } else {
-      runner.x += dx / dist * 2;
-      runner.y += dy / dist * 2;
-    }
-  }
-
-  function swingBat() {
-    if (!bat.swinging) {
-      bat.swinging = true;
-      let swingAngle = 0;
-      const swingInterval = setInterval(() => {
-        swingAngle += 0.2;
-        bat.angle = swingAngle;
-        if (swingAngle >= 1.2) {
-          clearInterval(swingInterval);
-          bat.angle = 0;
-          bat.swinging = false;
-        }
-      }, 16);
-
-      // Check collision
-      if (
-        ball.active &&
-        ball.y > bat.y - bat.height &&
-        ball.y < bat.y &&
-        Math.abs(ball.x - bat.x) < 30
-      ) {
-        ball.speedY = -6;
-        ball.speedX *= 3;
-        ball.hit = true;
-        runner.x = 400;
-        runner.y = 390;
-        runner.stage = 1; // start to first
-      }
-    }
-  }
-
-  function loop() {
-    drawField();
-    drawBall();
-    drawBat();
-    drawRunner();
-    updateBall();
-    updateRunner();
-    requestAnimationFrame(loop);
-  }
-
-  canvas.addEventListener('click', () => {
-    if (!gameStarted) {
-      gameStarted = true;
-      pitchBall();
-    } else {
-      swingBat();
     }
   });
 
-  loop();
+  // Health pack pickup
+  healthPacks.forEach((p, i) => {
+    const dist = Math.hypot(player.x - p.x, player.y - p.y);
+    if (dist < player.r + p.r && p.active) {
+      player.health = Math.min(player.health + 30, 100);
+      p.active = false;
+    }
+  });
+
+  // Spawn logic
+  if (spawnCooldown <= 0) {
+    for (let i = 0; i < wave; i++) spawnZombie();
+    if (Math.random() < 0.3) spawnHealthPack();
+    spawnCooldown = 400;
+    wave++;
+  } else {
+    spawnCooldown--;
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Player
+  ctx.fillStyle = 'cyan';
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Gun direction line
+  ctx.strokeStyle = 'white';
+  ctx.beginPath();
+  ctx.moveTo(player.x, player.y);
+  ctx.lineTo(mouse.x, mouse.y);
+  ctx.stroke();
+
+  // Bullets
+  ctx.fillStyle = 'yellow';
+  bullets.forEach(b => {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Zombies
+  ctx.fillStyle = 'green';
+  zombies.forEach(z => {
+    ctx.beginPath();
+    ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Health packs
+  healthPacks.forEach(p => {
+    if (p.active) {
+      ctx.fillStyle = 'red';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // UI
+  ctx.fillStyle = 'white';
+  ctx.font = '16px monospace';
+  ctx.fillText(`Health: ${Math.floor(player.health)}  Ammo: ${player.ammo}/${player.maxAmmo}  Score: ${player.score}  Wave: ${wave}`, 10, 20);
+  if (player.reloading) ctx.fillText(`Reloading...`, 10, 40);
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'red';
+    ctx.font = '40px sans-serif';
+    ctx.fillText('GAME OVER', 300, 300);
+    ctx.font = '20px sans-serif';
+    ctx.fillText(`Score: ${player.score}`, 350, 340);
+  }
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
 </script>
 </body>
 </html>
