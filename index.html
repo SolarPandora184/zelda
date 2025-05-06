@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Zelda Clone</title>
+  <style>
+    canvas {
+      background: #000;
+      display: block;
+      margin: auto;
+    }
+    body {
+      text-align: center;
+      color: white;
+      font-family: sans-serif;
+      background-color: #111;
+    }
+  </style>
+</head>
+<body>
+  <h1>Zelda-Style Game (Mini Demo)</h1>
+  <canvas id="gameCanvas" width="640" height="480"></canvas>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const player = {
+      x: 300,
+      y: 220,
+      width: 32,
+      height: 32,
+      color: 'green',
+      speed: 3,
+      health: 3
+    };
+
+    let keys = {};
+    const sword = { active: false, x: 0, y: 0, width: 8, height: 16, timer: 0 };
+
+    const enemies = [];
+
+    function spawnEnemy() {
+      for (let i = 0; i < 3; i++) {
+        enemies.push({
+          x: Math.random() * 600,
+          y: Math.random() * 440,
+          width: 28,
+          height: 28,
+          color: 'red',
+          dx: Math.random() > 0.5 ? 1 : -1,
+          dy: Math.random() > 0.5 ? 1 : -1,
+          speed: 1.5
+        });
+      }
+    }
+
+    function drawRect(obj) {
+      ctx.fillStyle = obj.color;
+      ctx.fillRect(obj.x, obj.y, obj.width, obj.height);
+    }
+
+    function update() {
+      // Movement
+      if (keys.ArrowLeft) player.x -= player.speed;
+      if (keys.ArrowRight) player.x += player.speed;
+      if (keys.ArrowUp) player.y -= player.speed;
+      if (keys.ArrowDown) player.y += player.speed;
+
+      // Boundaries
+      player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+      player.y = Math.max(0, Math.min(canvas.height - player.height, player.y));
+
+      // Sword
+      if (sword.active) {
+        sword.timer--;
+        if (sword.timer <= 0) {
+          sword.active = false;
+        }
+      }
+
+      // Enemies
+      for (const enemy of enemies) {
+        enemy.x += enemy.dx * enemy.speed;
+        enemy.y += enemy.dy * enemy.speed;
+
+        if (Math.random() < 0.02) enemy.dx *= -1;
+        if (Math.random() < 0.02) enemy.dy *= -1;
+
+        // Bounds check
+        if (enemy.x < 0 || enemy.x > canvas.width - enemy.width) enemy.dx *= -1;
+        if (enemy.y < 0 || enemy.y > canvas.height - enemy.height) enemy.dy *= -1;
+
+        // Collision with player
+        if (collides(player, enemy)) {
+          player.health--;
+          enemy.x = Math.random() * 600;
+          enemy.y = Math.random() * 440;
+        }
+
+        // Sword hit
+        if (sword.active && collides(sword, enemy)) {
+          enemy.x = Math.random() * 600;
+          enemy.y = Math.random() * 440;
+        }
+      }
+
+      // Game Over
+      if (player.health <= 0) {
+        alert("Game Over!");
+        document.location.reload();
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawRect(player);
+      if (sword.active) drawRect(sword);
+      for (const enemy of enemies) drawRect(enemy);
+      ctx.fillStyle = 'white';
+      ctx.fillText("Health: " + player.health, 10, 20);
+    }
+
+    function collides(a, b) {
+      return (
+        a.x < b.x + b.width &&
+        a.x + a.width > b.x &&
+        a.y < b.y + b.height &&
+        a.y + a.height > b.y
+      );
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Event listeners
+    document.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      if (e.key === ' ') {
+        if (!sword.active) {
+          sword.active = true;
+          sword.x = player.x + player.width / 2 - sword.width / 2;
+          sword.y = player.y - sword.height;
+          sword.timer = 15;
+          sword.color = 'yellow';
+        }
+      }
+    });
+
+    document.addEventListener('keyup', e => {
+      keys[e.key] = false;
+    });
+
+    // Init
+    spawnEnemy();
+    gameLoop();
+  </script>
+</body>
+</html>
