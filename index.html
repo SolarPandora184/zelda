@@ -48,10 +48,11 @@
     x: 400,
     y: 390,
     running: false,
-    reachedFirst: false
+    stage: 0 // 0 = home, 1 = to first, 2 = to second, 3 = stopped
   };
 
   const firstBase = { x: 600, y: 300 };
+  const secondBase = { x: 500, y: 150 };
 
   function drawField() {
     ctx.fillStyle = '#4CAF50';
@@ -76,6 +77,10 @@
     // First base
     ctx.fillStyle = 'white';
     ctx.fillRect(firstBase.x - 10, firstBase.y - 10, 20, 20);
+
+    // Second base
+    ctx.fillStyle = 'white';
+    ctx.fillRect(secondBase.x - 10, secondBase.y - 10, 20, 20);
   }
 
   function drawBall() {
@@ -97,7 +102,7 @@
   }
 
   function drawRunner() {
-    if (runner.running || runner.reachedFirst) {
+    if (runner.stage > 0 && runner.stage <= 3) {
       ctx.fillStyle = 'blue';
       ctx.beginPath();
       ctx.arc(runner.x, runner.y, 10, 0, Math.PI * 2);
@@ -132,18 +137,27 @@
   }
 
   function updateRunner() {
-    if (runner.running && !runner.reachedFirst) {
-      const dx = firstBase.x - runner.x;
-      const dy = firstBase.y - runner.y;
-      const dist = Math.hypot(dx, dy);
+    if (runner.stage === 1) {
+      moveToBase(firstBase.x, firstBase.y, () => {
+        runner.stage = 2;
+      });
+    } else if (runner.stage === 2) {
+      moveToBase(secondBase.x, secondBase.y, () => {
+        runner.stage = 3; // stop at second
+      });
+    }
+  }
 
-      if (dist < 5) {
-        runner.running = false;
-        runner.reachedFirst = true;
-      } else {
-        runner.x += dx / dist * 2;
-        runner.y += dy / dist * 2;
-      }
+  function moveToBase(baseX, baseY, onArrive) {
+    const dx = baseX - runner.x;
+    const dy = baseY - runner.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < 5) {
+      onArrive();
+    } else {
+      runner.x += dx / dist * 2;
+      runner.y += dy / dist * 2;
     }
   }
 
@@ -171,10 +185,9 @@
         ball.speedY = -6;
         ball.speedX *= 3;
         ball.hit = true;
-        runner.running = true;
         runner.x = 400;
         runner.y = 390;
-        runner.reachedFirst = false;
+        runner.stage = 1; // start to first
       }
     }
   }
