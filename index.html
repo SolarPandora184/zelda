@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Mini Baseball Game</title>
+  <title>Baseball Game</title>
   <style>
     html, body {
       margin: 0;
@@ -24,13 +24,15 @@
   const ctx = canvas.getContext('2d');
 
   let gameStarted = false;
+
   let ball = {
     x: 400,
     y: 150,
     radius: 8,
     speedX: 0,
     speedY: 0,
-    active: false
+    active: false,
+    hit: false
   };
 
   let bat = {
@@ -41,6 +43,15 @@
     angle: 0,
     swinging: false
   };
+
+  let runner = {
+    x: 400,
+    y: 390,
+    running: false,
+    reachedFirst: false
+  };
+
+  const firstBase = { x: 600, y: 300 };
 
   function drawField() {
     ctx.fillStyle = '#4CAF50';
@@ -61,6 +72,10 @@
     ctx.lineTo(385, 390);
     ctx.closePath();
     ctx.fill();
+
+    // First base
+    ctx.fillStyle = 'white';
+    ctx.fillRect(firstBase.x - 10, firstBase.y - 10, 20, 20);
   }
 
   function drawBall() {
@@ -81,12 +96,22 @@
     ctx.restore();
   }
 
+  function drawRunner() {
+    if (runner.running || runner.reachedFirst) {
+      ctx.fillStyle = 'blue';
+      ctx.beginPath();
+      ctx.arc(runner.x, runner.y, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   function pitchBall() {
     ball.x = 400;
     ball.y = 150;
     ball.speedY = 3;
     ball.speedX = (Math.random() - 0.5) * 2;
     ball.active = true;
+    ball.hit = false;
   }
 
   function updateBall() {
@@ -94,9 +119,30 @@
       ball.x += ball.speedX;
       ball.y += ball.speedY;
 
-      if (ball.y > 380) {
+      if (ball.y > 380 && !ball.hit) {
         ball.active = false;
         setTimeout(pitchBall, 1000);
+      }
+
+      if (ball.hit && (ball.x < 0 || ball.x > 800 || ball.y < 0)) {
+        ball.active = false;
+        setTimeout(pitchBall, 1000);
+      }
+    }
+  }
+
+  function updateRunner() {
+    if (runner.running && !runner.reachedFirst) {
+      const dx = firstBase.x - runner.x;
+      const dy = firstBase.y - runner.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist < 5) {
+        runner.running = false;
+        runner.reachedFirst = true;
+      } else {
+        runner.x += dx / dist * 2;
+        runner.y += dy / dist * 2;
       }
     }
   }
@@ -122,8 +168,13 @@
         ball.y < bat.y &&
         Math.abs(ball.x - bat.x) < 30
       ) {
-        ball.speedY = -5;
-        ball.speedX *= 2;
+        ball.speedY = -6;
+        ball.speedX *= 3;
+        ball.hit = true;
+        runner.running = true;
+        runner.x = 400;
+        runner.y = 390;
+        runner.reachedFirst = false;
       }
     }
   }
@@ -132,7 +183,9 @@
     drawField();
     drawBall();
     drawBat();
+    drawRunner();
     updateBall();
+    updateRunner();
     requestAnimationFrame(loop);
   }
 
