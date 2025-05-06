@@ -1,195 +1,151 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>ChronoBot Arena</title>
+  <meta charset="UTF-8" />
+  <title>Mini Baseball Game</title>
   <style>
-    body { margin: 0; font-family: monospace; background: #111; color: #0f0; }
-    canvas { background: #000; display: block; margin: 0 auto; }
-    #log { white-space: pre; font-size: 14px; padding: 10px; height: 120px; overflow-y: auto; background: #000; border-top: 2px solid #0f0; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #87CEEB;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background: #4CAF50;
+    }
   </style>
 </head>
 <body>
-<canvas id="game" width="640" height="640"></canvas>
-<div id="log"></div>
+<canvas id="game" width="800" height="400"></canvas>
 <script>
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const log = document.getElementById('log');
-const TILE_SIZE = 40;
-const MAP_SIZE = 16;
-const PLAYER_COLOR = '#0f0';
-const ENEMY_COLOR = '#f00';
-const WALL_COLOR = '#555';
-const FLOOR_COLOR = '#222';
-const POWERUP_COLOR = '#0ff';
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
 
-let map = [];
-let player = null;
-let enemies = [];
-let powerUps = [];
-let turnHistory = [];
-let gameOver = false;
+  let gameStarted = false;
+  let ball = {
+    x: 400,
+    y: 150,
+    radius: 8,
+    speedX: 0,
+    speedY: 0,
+    active: false
+  };
 
-function randInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
+  let bat = {
+    x: 400,
+    y: 300,
+    width: 10,
+    height: 60,
+    angle: 0,
+    swinging: false
+  };
 
-function logMsg(msg) {
-  log.textContent += msg + '\n';
-  log.scrollTop = log.scrollHeight;
-}
+  function drawField() {
+    ctx.fillStyle = '#4CAF50';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-function initMap() {
-  map = [];
-  for (let y = 0; y < MAP_SIZE; y++) {
-    let row = [];
-    for (let x = 0; x < MAP_SIZE; x++) {
-      if (Math.random() < 0.1) {
-        row.push('wall');
-      } else {
-        row.push('floor');
+    // Pitcher's mound
+    ctx.fillStyle = '#D2B48C';
+    ctx.beginPath();
+    ctx.arc(400, 150, 20, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Home plate
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.moveTo(390, 370);
+    ctx.lineTo(410, 370);
+    ctx.lineTo(415, 390);
+    ctx.lineTo(385, 390);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawBall() {
+    if (ball.active) {
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawBat() {
+    ctx.save();
+    ctx.translate(bat.x, bat.y);
+    ctx.rotate(bat.angle);
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(-bat.width / 2, -bat.height, bat.width, bat.height);
+    ctx.restore();
+  }
+
+  function pitchBall() {
+    ball.x = 400;
+    ball.y = 150;
+    ball.speedY = 3;
+    ball.speedX = (Math.random() - 0.5) * 2;
+    ball.active = true;
+  }
+
+  function updateBall() {
+    if (ball.active) {
+      ball.x += ball.speedX;
+      ball.y += ball.speedY;
+
+      if (ball.y > 380) {
+        ball.active = false;
+        setTimeout(pitchBall, 1000);
       }
     }
-    map.push(row);
   }
-}
 
-function placeEntityAvoidingWalls(entityList, type, count) {
-  for (let i = 0; i < count; i++) {
-    let placed = false;
-    while (!placed) {
-      let x = randInt(0, MAP_SIZE - 1);
-      let y = randInt(0, MAP_SIZE - 1);
-      if (map[y][x] === 'floor' && !entityAt(x, y)) {
-        entityList.push({x, y, type, hp: 5 + randInt(0, 5)});
-        placed = true;
+  function swingBat() {
+    if (!bat.swinging) {
+      bat.swinging = true;
+      let swingAngle = 0;
+      const swingInterval = setInterval(() => {
+        swingAngle += 0.2;
+        bat.angle = swingAngle;
+        if (swingAngle >= 1.2) {
+          clearInterval(swingInterval);
+          bat.angle = 0;
+          bat.swinging = false;
+        }
+      }, 16);
+
+      // Check collision
+      if (
+        ball.active &&
+        ball.y > bat.y - bat.height &&
+        ball.y < bat.y &&
+        Math.abs(ball.x - bat.x) < 30
+      ) {
+        ball.speedY = -5;
+        ball.speedX *= 2;
       }
     }
   }
-}
 
-function entityAt(x, y) {
-  if (player && player.x === x && player.y === y) return player;
-  for (let e of enemies) if (e.x === x && e.y === y) return e;
-  for (let p of powerUps) if (p.x === x && p.y === y) return p;
-  return null;
-}
-
-function initGame() {
-  initMap();
-  enemies = [];
-  powerUps = [];
-  turnHistory = [];
-  gameOver = false;
-  // Player
-  player = {x: 1, y: 1, hp: 10, ap: 3, armor: 0};
-  // Enemies
-  placeEntityAvoidingWalls(enemies, 'enemy', 5);
-  // PowerUps
-  placeEntityAvoidingWalls(powerUps, 'powerup', 3);
-  logMsg("Welcome to ChronoBot Arena! Use arrow keys. R=Rewind, Enter=Next Turn");
-  draw();
-}
-
-function drawTile(x, y, color) {
-  ctx.fillStyle = color;
-  ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-}
-
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  for (let y = 0; y < MAP_SIZE; y++) {
-    for (let x = 0; x < MAP_SIZE; x++) {
-      let tile = map[y][x];
-      drawTile(x, y, tile === 'wall' ? WALL_COLOR : FLOOR_COLOR);
-    }
+  function loop() {
+    drawField();
+    drawBall();
+    drawBat();
+    updateBall();
+    requestAnimationFrame(loop);
   }
-  for (let p of powerUps) drawTile(p.x, p.y, POWERUP_COLOR);
-  for (let e of enemies) drawTile(e.x, e.y, ENEMY_COLOR);
-  drawTile(player.x, player.y, PLAYER_COLOR);
-}
 
-function moveEntity(entity, dx, dy) {
-  let nx = entity.x + dx, ny = entity.y + dy;
-  if (nx < 0 || ny < 0 || nx >= MAP_SIZE || ny >= MAP_SIZE) return false;
-  if (map[ny][nx] === 'wall') return false;
-  if (entity === player) {
-    let target = enemies.find(e => e.x === nx && e.y === ny);
-    if (target) {
-      attack(entity, target);
-      return true;
-    }
-    let powerup = powerUps.find(p => p.x === nx && p.y === ny);
-    if (powerup) {
-      logMsg("You absorbed a power core! +5 HP, +1 AP.");
-      player.hp += 5;
-      player.ap += 1;
-      powerUps = powerUps.filter(p => p !== powerup);
-    }
-  }
-  if (!entityAt(nx, ny)) {
-    entity.x = nx;
-    entity.y = ny;
-    return true;
-  }
-  return false;
-}
-
-function attack(attacker, target) {
-  let dmg = randInt(1, 3);
-  target.hp -= Math.max(0, dmg - (target.armor || 0));
-  logMsg(`${attacker === player ? 'You' : 'Enemy'} hit for ${dmg} damage!`);
-  if (target.hp <= 0) {
-    logMsg(`${target === player ? 'You have died!' : 'Enemy destroyed!'}`);
-    if (target === player) gameOver = true;
-    enemies = enemies.filter(e => e !== target);
-  }
-}
-
-function nextTurn() {
-  if (gameOver) return;
-  turnHistory.push(JSON.stringify({player: {...player}, enemies: JSON.parse(JSON.stringify(enemies))}));
-  player.ap = 3;
-  for (let e of enemies) {
-    let dx = Math.sign(player.x - e.x);
-    let dy = Math.sign(player.y - e.y);
-    if (Math.abs(dx) + Math.abs(dy) === 1) {
-      attack(e, player);
+  canvas.addEventListener('click', () => {
+    if (!gameStarted) {
+      gameStarted = true;
+      pitchBall();
     } else {
-      moveEntity(e, dx, dy);
+      swingBat();
     }
-  }
-  draw();
-}
+  });
 
-function rewind() {
-  if (turnHistory.length === 0) {
-    logMsg("No more rewinds!");
-    return;
-  }
-  let state = JSON.parse(turnHistory.pop());
-  player = state.player;
-  enemies = state.enemies;
-  logMsg("⏪ Time rewinded one turn.");
-  draw();
-}
-
-window.addEventListener('keydown', e => {
-  if (gameOver) return;
-  if (player.ap <= 0 && e.key !== 'Enter' && e.key !== 'r') return;
-  switch (e.key) {
-    case 'ArrowUp': if (moveEntity(player, 0, -1)) player.ap--; break;
-    case 'ArrowDown': if (moveEntity(player, 0, 1)) player.ap--; break;
-    case 'ArrowLeft': if (moveEntity(player, -1, 0)) player.ap--; break;
-    case 'ArrowRight': if (moveEntity(player, 1, 0)) player.ap--; break;
-    case 'Enter': nextTurn(); break;
-    case 'r': rewind(); break;
-  }
-  draw();
-});
-
-initGame();
+  loop();
 </script>
 </body>
 </html>
