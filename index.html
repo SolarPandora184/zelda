@@ -2,256 +2,194 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Zelda Complex Clone</title>
+  <title>ChronoBot Arena</title>
   <style>
-    body {
-      margin: 0;
-      background: #000;
-      color: white;
-      font-family: sans-serif;
-      text-align: center;
-    }
-    canvas {
-      display: block;
-      margin: 0 auto;
-      background-color: #1c1c1c;
-      image-rendering: pixelated;
-    }
+    body { margin: 0; font-family: monospace; background: #111; color: #0f0; }
+    canvas { background: #000; display: block; margin: 0 auto; }
+    #log { white-space: pre; font-size: 14px; padding: 10px; height: 120px; overflow-y: auto; background: #000; border-top: 2px solid #0f0; }
   </style>
 </head>
 <body>
-  <h1>Advanced Zelda-Like Game</h1>
-  <canvas id="gameCanvas" width="640" height="480"></canvas>
-  <script>
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
+<canvas id="game" width="640" height="640"></canvas>
+<div id="log"></div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const log = document.getElementById('log');
+const TILE_SIZE = 40;
+const MAP_SIZE = 16;
+const PLAYER_COLOR = '#0f0';
+const ENEMY_COLOR = '#f00';
+const WALL_COLOR = '#555';
+const FLOOR_COLOR = '#222';
+const POWERUP_COLOR = '#0ff';
 
-    const TILE_SIZE = 32;
-    const MAP_ROWS = 15;
-    const MAP_COLS = 20;
-    const player = {
-      x: 2,
-      y: 2,
-      width: TILE_SIZE,
-      height: TILE_SIZE,
-      color: 'lime',
-      health: 5,
-      attackTimer: 0,
-    };
+let map = [];
+let player = null;
+let enemies = [];
+let powerUps = [];
+let turnHistory = [];
+let gameOver = false;
 
-    const keys = {};
-    const map = [
-      "####################",
-      "#.............H....#",
-      "#.####.............#",
-      "#......#####.......#",
-      "#..............#####",
-      "#.H..........#.....#",
-      "#..........####....#",
-      "#....E.............#",
-      "#..........##......#",
-      "#....#######.......#",
-      "#...........#####..#",
-      "#....H............E#",
-      "#.........#####....#",
-      "#...............#..#",
-      "####################"
-    ];
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
 
-    const enemies = [];
-    const items = [];
+function logMsg(msg) {
+  log.textContent += msg + '\n';
+  log.scrollTop = log.scrollHeight;
+}
 
-    function setupEntities() {
-      for (let row = 0; row < MAP_ROWS; row++) {
-        for (let col = 0; col < MAP_COLS; col++) {
-          const tile = map[row][col];
-          const x = col * TILE_SIZE;
-          const y = row * TILE_SIZE;
-          if (tile === 'E') {
-            enemies.push({
-              x,
-              y,
-              width: TILE_SIZE,
-              height: TILE_SIZE,
-              color: 'red',
-              dx: Math.random() > 0.5 ? 1 : -1,
-              dy: 0,
-              speed: 1,
-              patrol: 0,
-              alive: true
-            });
-          } else if (tile === 'H') {
-            items.push({
-              x,
-              y,
-              width: TILE_SIZE / 2,
-              height: TILE_SIZE / 2,
-              color: 'pink',
-              type: 'heart'
-            });
-          }
-        }
+function initMap() {
+  map = [];
+  for (let y = 0; y < MAP_SIZE; y++) {
+    let row = [];
+    for (let x = 0; x < MAP_SIZE; x++) {
+      if (Math.random() < 0.1) {
+        row.push('wall');
+      } else {
+        row.push('floor');
       }
     }
+    map.push(row);
+  }
+}
 
-    function drawRect(obj) {
-      ctx.fillStyle = obj.color;
-      ctx.fillRect(obj.x, obj.y, obj.width, obj.height);
-    }
-
-    function tileAt(x, y) {
-      const col = Math.floor(x / TILE_SIZE);
-      const row = Math.floor(y / TILE_SIZE);
-      return map[row]?.[col] || '#';
-    }
-
-    function isWalkable(x, y) {
-      const tile = tileAt(x, y);
-      return tile !== '#' && tile !== undefined;
-    }
-
-    function movePlayer() {
-      let dx = 0, dy = 0;
-      if (keys['ArrowUp']) dy = -1;
-      if (keys['ArrowDown']) dy = 1;
-      if (keys['ArrowLeft']) dx = -1;
-      if (keys['ArrowRight']) dx = 1;
-
-      const newX = player.x + dx * TILE_SIZE;
-      const newY = player.y + dy * TILE_SIZE;
-
-      if (isWalkable(newX, player.y)) player.x = newX;
-      if (isWalkable(player.x, newY)) player.y = newY;
-    }
-
-    function updateEnemies() {
-      for (const enemy of enemies) {
-        if (!enemy.alive) continue;
-        enemy.patrol++;
-        if (enemy.patrol > 60) {
-          enemy.dx *= -1;
-          enemy.patrol = 0;
-        }
-
-        const newX = enemy.x + enemy.dx * enemy.speed;
-        if (isWalkable(newX, enemy.y)) {
-          enemy.x = newX;
-        } else {
-          enemy.dx *= -1;
-        }
-
-        // Collision with player
-        if (
-          enemy.alive &&
-          rectsOverlap(enemy, player)
-        ) {
-          player.health -= 1;
-          enemy.alive = false;
-        }
+function placeEntityAvoidingWalls(entityList, type, count) {
+  for (let i = 0; i < count; i++) {
+    let placed = false;
+    while (!placed) {
+      let x = randInt(0, MAP_SIZE - 1);
+      let y = randInt(0, MAP_SIZE - 1);
+      if (map[y][x] === 'floor' && !entityAt(x, y)) {
+        entityList.push({x, y, type, hp: 5 + randInt(0, 5)});
+        placed = true;
       }
     }
+  }
+}
 
-    function updateItems() {
-      for (const item of items) {
-        if (rectsOverlap(item, player)) {
-          if (item.type === 'heart') {
-            player.health = Math.min(5, player.health + 1);
-          }
-          item.collected = true;
-        }
-      }
+function entityAt(x, y) {
+  if (player && player.x === x && player.y === y) return player;
+  for (let e of enemies) if (e.x === x && e.y === y) return e;
+  for (let p of powerUps) if (p.x === x && p.y === y) return p;
+  return null;
+}
+
+function initGame() {
+  initMap();
+  enemies = [];
+  powerUps = [];
+  turnHistory = [];
+  gameOver = false;
+  // Player
+  player = {x: 1, y: 1, hp: 10, ap: 3, armor: 0};
+  // Enemies
+  placeEntityAvoidingWalls(enemies, 'enemy', 5);
+  // PowerUps
+  placeEntityAvoidingWalls(powerUps, 'powerup', 3);
+  logMsg("Welcome to ChronoBot Arena! Use arrow keys. R=Rewind, Enter=Next Turn");
+  draw();
+}
+
+function drawTile(x, y, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < MAP_SIZE; y++) {
+    for (let x = 0; x < MAP_SIZE; x++) {
+      let tile = map[y][x];
+      drawTile(x, y, tile === 'wall' ? WALL_COLOR : FLOOR_COLOR);
     }
+  }
+  for (let p of powerUps) drawTile(p.x, p.y, POWERUP_COLOR);
+  for (let e of enemies) drawTile(e.x, e.y, ENEMY_COLOR);
+  drawTile(player.x, player.y, PLAYER_COLOR);
+}
 
-    function rectsOverlap(a, b) {
-      return (
-        a.x < b.x + b.width &&
-        a.x + a.width > b.x &&
-        a.y < b.y + b.height &&
-        a.y + a.height > b.y
-      );
+function moveEntity(entity, dx, dy) {
+  let nx = entity.x + dx, ny = entity.y + dy;
+  if (nx < 0 || ny < 0 || nx >= MAP_SIZE || ny >= MAP_SIZE) return false;
+  if (map[ny][nx] === 'wall') return false;
+  if (entity === player) {
+    let target = enemies.find(e => e.x === nx && e.y === ny);
+    if (target) {
+      attack(entity, target);
+      return true;
     }
-
-    function attack() {
-      if (player.attackTimer > 0) return;
-      player.attackTimer = 20;
-
-      const attackBox = {
-        x: player.x,
-        y: player.y - TILE_SIZE,
-        width: TILE_SIZE,
-        height: TILE_SIZE
-      };
-
-      for (const enemy of enemies) {
-        if (enemy.alive && rectsOverlap(attackBox, enemy)) {
-          enemy.alive = false;
-        }
-      }
+    let powerup = powerUps.find(p => p.x === nx && p.y === ny);
+    if (powerup) {
+      logMsg("You absorbed a power core! +5 HP, +1 AP.");
+      player.hp += 5;
+      player.ap += 1;
+      powerUps = powerUps.filter(p => p !== powerup);
     }
+  }
+  if (!entityAt(nx, ny)) {
+    entity.x = nx;
+    entity.y = ny;
+    return true;
+  }
+  return false;
+}
 
-    function drawMap() {
-      for (let row = 0; row < MAP_ROWS; row++) {
-        for (let col = 0; col < MAP_COLS; col++) {
-          const tile = map[row][col];
-          if (tile === '#') {
-            ctx.fillStyle = '#444';
-            ctx.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-          }
-        }
-      }
+function attack(attacker, target) {
+  let dmg = randInt(1, 3);
+  target.hp -= Math.max(0, dmg - (target.armor || 0));
+  logMsg(`${attacker === player ? 'You' : 'Enemy'} hit for ${dmg} damage!`);
+  if (target.hp <= 0) {
+    logMsg(`${target === player ? 'You have died!' : 'Enemy destroyed!'}`);
+    if (target === player) gameOver = true;
+    enemies = enemies.filter(e => e !== target);
+  }
+}
+
+function nextTurn() {
+  if (gameOver) return;
+  turnHistory.push(JSON.stringify({player: {...player}, enemies: JSON.parse(JSON.stringify(enemies))}));
+  player.ap = 3;
+  for (let e of enemies) {
+    let dx = Math.sign(player.x - e.x);
+    let dy = Math.sign(player.y - e.y);
+    if (Math.abs(dx) + Math.abs(dy) === 1) {
+      attack(e, player);
+    } else {
+      moveEntity(e, dx, dy);
     }
+  }
+  draw();
+}
 
-    function drawUI() {
-      ctx.fillStyle = 'white';
-      ctx.font = '16px sans-serif';
-      ctx.fillText("Health: " + player.health, 10, 20);
-    }
+function rewind() {
+  if (turnHistory.length === 0) {
+    logMsg("No more rewinds!");
+    return;
+  }
+  let state = JSON.parse(turnHistory.pop());
+  player = state.player;
+  enemies = state.enemies;
+  logMsg("⏪ Time rewinded one turn.");
+  draw();
+}
 
-    function drawEntities() {
-      drawRect(player);
-      for (const enemy of enemies) {
-        if (enemy.alive) drawRect(enemy);
-      }
-      for (const item of items) {
-        if (!item.collected) drawRect(item);
-      }
-    }
+window.addEventListener('keydown', e => {
+  if (gameOver) return;
+  if (player.ap <= 0 && e.key !== 'Enter' && e.key !== 'r') return;
+  switch (e.key) {
+    case 'ArrowUp': if (moveEntity(player, 0, -1)) player.ap--; break;
+    case 'ArrowDown': if (moveEntity(player, 0, 1)) player.ap--; break;
+    case 'ArrowLeft': if (moveEntity(player, -1, 0)) player.ap--; break;
+    case 'ArrowRight': if (moveEntity(player, 1, 0)) player.ap--; break;
+    case 'Enter': nextTurn(); break;
+    case 'r': rewind(); break;
+  }
+  draw();
+});
 
-    function gameLoop() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawMap();
-      movePlayer();
-      updateEnemies();
-      updateItems();
-
-      if (player.attackTimer > 0) player.attackTimer--;
-      drawEntities();
-      drawUI();
-
-      if (player.health <= 0) {
-        ctx.fillStyle = 'red';
-        ctx.font = '30px sans-serif';
-        ctx.fillText("GAME OVER", canvas.width / 2 - 80, canvas.height / 2);
-        return;
-      }
-
-      requestAnimationFrame(gameLoop);
-    }
-
-    // Controls
-    window.addEventListener('keydown', e => {
-      keys[e.key] = true;
-      if (e.key === ' ') {
-        attack();
-      }
-    });
-
-    window.addEventListener('keyup', e => {
-      keys[e.key] = false;
-    });
-
-    setupEntities();
-    gameLoop();
-  </script>
+initGame();
+</script>
 </body>
 </html>
